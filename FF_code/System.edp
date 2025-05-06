@@ -1,0 +1,159 @@
+// --- Calculation parameters ---
+int nn = 100.;
+real dt = 0.0001;
+real t = 0.;
+
+// --- Static parameters ---
+real l = 0.08; // [0.04,..,0.08]
+real r = 0.003; // [0.003,..,0.01]
+real Bm = 50.; // [5,..,50]
+real k = 180.*(1e-6); // [100*1e-6,..,200*1e-6]
+
+real eps = 0.00001;
+real L = 0.8;
+real sigma = 46.7;
+
+real M=0.03;
+real uS = M*343.; 
+real roS = 4.364*0.000001*20*20-3.398*0.001*20+1.219;
+
+real pS = 343*343*roS;
+real T = 1.*(1e-3)*uS/L;    
+
+// --- Сетка ---
+border A1(t1 = 0, 1) { x =1.* t1; y = 0.;  label = 1; }  // Lower border     
+border A2(t1 = 0, 1) { x =1.* t1; y = 0.5; label = 3; } // Upper border
+border B1(t1 = 0, 1) { x = 0; y = 0.5 * t1; label = 4; } // Left border       
+border B2(t1 = 0, 1) { x = 1.; y = 0.5 * t1; label = 2; } // Right border
+
+mesh Th = buildmesh(A1(nn*2) + B1(-nn) + A2(-nn*2) + B2(nn)); 
+Th = adaptmesh(Th, hmax=0.001, nbvx=100000);
+
+// --- Spaces ---
+fespace Vh(Th, P2);
+Vh u , uConv, teth , tethConv, ro , roConv, v, g, Cr, lmbd, mu, nu, a, Pr, B, Bt, Re, Ec, Pu, R, Rs;
+
+// --- Initial environment settings ---
+real temps = 20.;
+real tethS = 273.15+temps;   
+
+
+// --- Recalculation of environmental properties ---
+Cr = 3.814 * 1.0e-4 * pow(temps,2) - 0.021 * temps + 1041.;
+lmbd = -3.77 * 1.0e-8 * pow(temps,2) + 7.5 * 1.0e-5 * temps + 0.024;
+mu = -2.29 * 1.0e-11 * pow(temps,2) + 4.56 * 1.0e-8 * temps + 1.66 * 1.0e-5;
+nu = 8.223 * 1.0e-11 * pow(temps,2) + 9.09 * 1.0e-8 * temps + 1.336 * 1.0e-5;
+
+Pr = mu * Cr/lmbd; 
+
+B = Bm * sin(pi * t / k) * exp(-t/T); 
+Bt = Bm*(L/uS*pi/k*cos(L/uS*pi/k*t)-1./T*sin(L/uS*pi/k*t)*exp(-t/T)); 
+
+Re = uS * L * roS / mu;
+Ec = uS*uS / (Cr * tethS);  
+
+Pu = pS / (pow(uS,2) * roS); 
+R = 296.65; 
+Rs = R * roS * tethS / pS;   
+
+
+// --- System of equations ---
+problem SystemCombined(u, teth,v, g)
+    = int2d(Th)(ro * teth * g + ro * u * v)
+
+    + int2d(Th)((1e+3)*
+        dt/(3.*Re)*(dx(u)*dx(v) + dy(u)*dy(v)) + 
+		(1e+3)/Pr*(dt/Re)*(dx(teth)*dx(g) + dy(teth)*dy(g))
+    )    
+
+	+int2d(Th)(
+        dt/(3.*Re)*(dx(uConv)*dx(v) + dy(uConv)*dy(v)) +      
+		1./Pr*(dt/Re)*(dx(tethConv)*dx(g) + dy(tethConv)*dy(g))   
+    ) 
+
+    + int2d(Th)(dt * Pu * Rs * v * (dx(ro)*teth + ro*(dx(teth)))) 
+    - int1d(Th,2)((1e-4)*
+        dt*Pu*Rs*teth*v*ro
+    ) 
+
+    - int2d(Th)((dt*sigma*r)/(uS*roS)*Bt*B*v * (x<l/L))
+    - int2d(Th)(ro * convect([uConv, 0.], -dt, uConv) * v) 
+    - int2d(Th)(g * dt * 2. * Ec / (3.*Re) * (dx(uConv) - 0.5 * 3. * Re * Pu * Rs * ro * tethConv) * (dx(u)  - 0.5 * 3. * Re * Pu * Rs * ro* teth))
+    + int2d(Th)(g * dt * Ec / (3.*Re) * pow((dx(uConv) - 0.5 * 3. * Re * Pu * Rs * ro* tethConv),2.)) 
+	- int2d(Th)(ro * g * convect([uConv, 0.], -dt, tethConv))
+    + int2d(Th)(g * dt * Ec * pow(Pu,2) * pow(Rs,2) * 3. * Re / 2. * pow(ro,2.) * tethConv * teth) 
+    - int2d(Th)(g * dt * Ec * pow(Pu,2) * pow(Rs,2) * 3. * Re / 4. * pow((ro*tethConv),2)) 
+    + on(4, teth = 1.); 
+	;
+
+// --- Density equation ---
+problem DensityEquation(ro, v)
+    = int2d(Th)(v * ro)
+    - int2d(Th)(convect([u, 0.], -dt, roConv) * v)
+    + int2d(Th)(dx(u) * v * ro * dt)
+    + int2d(Th)((dx(ro) * dx(v) + dy(ro) * dy(v)) *eps)
+    + on(4, ro = 1.)
+    ;
+
+// --- Initial conditions ---
+uConv = 0.;       
+roConv = 1.;        
+tethConv = 1.;   
+u=uConv;
+
+DensityEquation;
+
+// --- Main calculation cycle ---
+int steps = int(T / dt);
+real[int] roArray(steps + 1);
+
+if (steps%2 != 0){
+    steps = steps - 1;
+}
+
+for (int m = 0; m <= steps; m++) {
+    t = t + dt;
+
+    // Updating Environment Settings
+    Cr = 3.814 * 1.0e-4 *  pow(tethConv*tethS-273.15,2) - 0.021 * (tethConv*tethS-273.15) + 1041.;
+    lmbd = -3.77 * 1.0e-8 * pow(tethConv*tethS-273.15,2) + 7.5 * 1.0e-5 * (tethConv*tethS-273.15) + 0.024;
+    mu = -2.29 * 1.0e-11 *  pow(tethConv*tethS-273.15,2) + 4.56 * 1.0e-8 * (tethConv*tethS-273.15) + 1.66 * 1.0e-5;
+    nu = 8.223 * 1.0e-11 *  pow(tethConv*tethS-273.15,2) + 9.09 * 1.0e-8 * (tethConv*tethS-273.15) + 1.336 * 1.0e-5;
+    Pr = mu * Cr/lmbd; 
+    
+    B = Bm * sin(L/uS*pi * t / k) * exp(-t/T);
+    Bt = 0.5*Bm*(L/uS*pi/k*cos(L/uS*pi/k*t)-1./T*sin(L/uS*pi/k*t))*exp(-t/T); 
+ 
+    Re = uS * L * roS / mu;
+    Ec = pow(uS,2) / (Cr * tethS);
+
+    // System solution
+    SystemCombined;
+    DensityEquation;
+
+    uConv = u;
+    roConv = ro;
+    tethConv = teth;
+	
+    real roAns = int1d(Th, 1)(1/(ro*ro));
+    roArray[m] = roAns;
+
+    cout << roAns;
+}
+
+
+// --- Integration by Simpson's method ---
+real integral = roArray[0] + roArray[steps]; 
+for (int m = 1; m < steps; m++) {
+    if (m % 2 == 1) {
+        integral += 4 * roArray[m];
+    } else {
+        integral += 2 * roArray[m]; 
+    }
+}
+
+integral = (1./T) * integral * dt / 3.;
+
+// --- Recording the result ---
+ofstream csvFile("../Data/output.csv", append);
+csvFile << Bm << "," << k << "," << l << "," << r << "," << integral << endl;
