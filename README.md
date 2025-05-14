@@ -14,14 +14,14 @@ This project develops and compares machine learning and MLP models to predict ad
 
 ## Structure
 
-'''
+```
 ├── Data/                 # Input datasets
 ├── FF_code/              # Data generation script
 ├── models/               # Saved models
 ├── notebooks/            # Jupyter notebooks for experiments
 ├── scripts/              # Utility scripts (e.g., training, evaluation)
 └── README.md             # Project description
-'''
+```
 
 ## Requirements
 
