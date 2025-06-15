@@ -1,5 +1,4 @@
 import numpy as np
-import itertools
 from typing import List, Tuple
 from scipy.optimize import differential_evolution
 

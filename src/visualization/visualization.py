@@ -1,10 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.axes
-from typing import List, Optional
 import pandas as pd
-from typing import Dict, Union
-# from evaluation.evaluate import evaluate_model
+from typing import Dict
 import os
 
 def render_mpl_table(data: pd.DataFrame) -> None:
