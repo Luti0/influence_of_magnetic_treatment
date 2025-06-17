@@ -13,6 +13,7 @@ setup(
         'scikit-learn',
         'matplotlib',
         'typing',
-        'optuna'
+        'optuna',
+        'joblib'
     ],
 )
